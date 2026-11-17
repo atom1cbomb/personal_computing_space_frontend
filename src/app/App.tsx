@@ -2,13 +2,14 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CatalogAdapter, UnavailableCatalogAdapter } from "../data/adapters/catalog-adapter";
 import { readAdapterConfig } from "../data/adapters/adapter-config";
 import { CatalogClient } from "../data/catalog/client";
+import { ObserverReadClient } from "../data/catalog/observer-read-client";
 import type { CapabilityPackage, Resource, Activation } from "../domain/models";
 import { getStatusLabel, getStatusTone } from "../domain/status";
 
 const config = readAdapterConfig();
 const catalogReady = Boolean(config.proxyToken);
 const adapter = catalogReady
-  ? new CatalogAdapter(new CatalogClient({ catalogUrl: config.catalogUrl, proxyToken: config.proxyToken! }))
+  ? new CatalogAdapter(new CatalogClient({ catalogUrl: config.catalogUrl, proxyToken: config.proxyToken! }), new ObserverReadClient(config.proxyToken!))
   : new UnavailableCatalogAdapter("Resource Catalog proxy token is required.");
 
 type View = "overview" | "resources" | "packages" | "activations";
@@ -122,10 +123,12 @@ function ActionCard({
         </div>
       )}
       {action.inputSchema && (
-        <pre className="json-block action-schema">{JSON.stringify(action.inputSchema, null, 2)}</pre>
+        <div><small>Input schema</small><pre className="json-block action-schema">{JSON.stringify(action.inputSchema, null, 2)}</pre></div>
+      )}
+      {action.outputSchema && (
+        <div><small>Output schema</small><pre className="json-block action-schema">{JSON.stringify(action.outputSchema, null, 2)}</pre></div>
       )}
       {action.available === false && <p className="notice">{action.unavailableReason ?? "Unavailable"}</p>}
-      <p className="muted detail-empty">Displayed for discovery only. Actions are executed outside this console.</p>
     </article>
   );
 }
@@ -344,8 +347,7 @@ function ResourceDetail({
         </div>
       </div>
 
-      {/* Runtime Actions */}
-      <div className="detail-section">
+      {!isExec && <div className="detail-section">
         <div className="panel-title panel-title-plain">
           <span>Available Runtime Actions ({selectedRes.actionIds.length})</span>
         </div>
@@ -364,7 +366,7 @@ function ResourceDetail({
                 ))
             )
         )}
-      </div>
+      </div>}
     </div>
   );
 }
@@ -484,6 +486,8 @@ export function App() {
   const [activations, setActivations] = useState<Activation[]>([]);
   const [selectedPackage, setSelectedPackage] = useState<string>();
   const [selectedResource, setSelectedResource] = useState<string>();
+  const [packageDetails, setPackageDetails] = useState<Record<string, CapabilityPackage>>({});
+  const [resourceDetails, setResourceDetails] = useState<Record<string, Resource>>({});
   const [activationFilter, setActivationFilter] = useState<
     "all" | "ready" | "pending_auth" | "stopped" | "starting" | "stopping" | "degraded" | "failed"
   >("all");
@@ -543,6 +547,24 @@ export function App() {
     setSelectedPackage(undefined);
   }, [view, resourceScope]);
 
+  useEffect(() => {
+    if (!selectedResource) return;
+    let cancelled = false;
+    void adapter.getResource(selectedResource).then((detail) => {
+      if (!cancelled && detail) setResourceDetails((current) => ({ ...current, [selectedResource]: detail }));
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [selectedResource]);
+
+  useEffect(() => {
+    if (!selectedPackage) return;
+    let cancelled = false;
+    void adapter.getPackage(selectedPackage).then((detail) => {
+      if (!cancelled && detail) setPackageDetails((current) => ({ ...current, [selectedPackage]: detail }));
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [selectedPackage]);
+
   async function handleRefresh() {
     if (refreshing) return;
     setRefreshing(true);
@@ -554,7 +576,7 @@ export function App() {
     }
   }
 
-  const selectedPkg = packages.find((item) => item.id === selectedPackage);
+  const selectedPkg = (selectedPackage && packageDetails[selectedPackage]) || packages.find((item) => item.id === selectedPackage);
 
   const visibleResources = resources.filter((item) => {
     const matchesScope =
@@ -566,7 +588,7 @@ export function App() {
     return (lifecycleFilter === "all" || item.lifecycle === lifecycleFilter) && matchesScope;
   });
 
-  const selectedRes = visibleResources.find((item) => item.id === selectedResource);
+  const selectedRes = (selectedResource && resourceDetails[selectedResource]) || visibleResources.find((item) => item.id === selectedResource);
 
   const visibleActivations = activations
     .filter((item) => activationFilter === "all" || item.status === activationFilter)
@@ -772,7 +794,9 @@ export function App() {
               return {
                 id: item.id,
                 name: item.name,
-                detail: `${item.kind} · ${String(item.attributes.region ?? "local")}`,
+                detail: isExec
+                  ? `${item.kind} · ${item.lifecycle ?? "unknown lifecycle"}`
+                  : `${item.kind} · ${String(item.attributes.region ?? "local")}`,
                 status: item.status,
                 hideStatus: isExec,
                 marker: markerForIndex(index),

@@ -1,5 +1,6 @@
 import type { CapabilityAction, CapabilityPackage, Resource, Activation, LifecycleStatus } from "../../domain/models";
 import type { CatalogResource } from "./client";
+import type { ObserverDescription } from "./observer-read-client";
 
 type CatalogCategory = NonNullable<Resource["catalogCategory"]>;
 type CatalogLifecycle = NonNullable<Resource["lifecycle"]>;
@@ -24,10 +25,13 @@ const status = (value: unknown): LifecycleStatus => {
 // A catalog row is a projection, not the authoritative record: `summary` holds
 // the bounded per-type document, and a live DESCRIPTION supplies whatever the
 // projection deliberately leaves out (offers, full attributes).
-export function normalizeResource(entry: CatalogResource): Resource {
+export function normalizeResource(entry: CatalogResource, description?: ObserverDescription): Resource {
   const summary = record(entry.summary);
-  const attributes = { ...summary };
-  const relations = record(entry.relations);
+  const attributes = { ...summary, ...record(description?.attributes), ...record(description?.details) };
+  const relations = { ...record(entry.relations) };
+  for (const key of ["plan", "run", "driver"] as const) {
+    if (typeof attributes[key] === "string") relations[key] = attributes[key];
+  }
   const lifecycle = lifecycleOf(entry.lifecycle);
   const available = entry.available ?? false;
   const actionRefs = Array.isArray(attributes.available_action_refs) ? attributes.available_action_refs
@@ -60,7 +64,7 @@ export function normalizeAction(value: any): CapabilityAction {
   const interaction = action.interaction ?? value.interaction ?? (action.mode === "byte-stream" ? "byte-stream" : undefined);
   const uri = text(action.uri ?? action.id ?? descriptorId, "unknown-action");
   const exportName = uri.match(/\/actions\/exports\/[^/]+\/[^/]+\/([^/]+)/)?.[1];
-  return { id: uri, name: text(action.name ?? descriptorName ?? exportName, tail(uri)), description: action.description, interaction, inputSchema: action.arguments_schema ?? action.input_schema ?? value.inputSchema, outputSchema: action.result_schema ?? action.output_schema ?? value.outputSchema, permissions: Array.isArray(action.permissions) ? action.permissions : [], sideEffects: action.side_effects ?? action.sideEffects, available: typeof action.available === "boolean" ? action.available : undefined, unavailableReason: action.unavailable_reason, metadata: {} };
+  return { id: uri, name: text(action.name ?? descriptorName ?? exportName, tail(uri)), description: action.description, interaction, inputSchema: action.arguments_schema ?? action.input_schema ?? value.inputSchema, outputSchema: action.result_schema ?? action.output_schema ?? value.outputSchema, permissions: Array.isArray(action.permissions) ? action.permissions : [], sideEffects: action.side_effects ?? action.sideEffects ?? action.effect_class, available: typeof action.available === "boolean" ? action.available : undefined, unavailableReason: action.unavailable_reason, metadata: {} };
 }
 
 export function normalizePackage(payload: any): CapabilityPackage {

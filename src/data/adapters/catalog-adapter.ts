@@ -1,5 +1,6 @@
 import { CatalogClient, type CatalogQuery, type CatalogResource } from "../catalog/client";
 import { normalizeAction, normalizeActivation, normalizePackage, normalizeResource } from "../catalog/normalizer";
+import { ObserverReadClient } from "../catalog/observer-read-client";
 import type {
   Activation,
   CapabilityPackage,
@@ -7,7 +8,7 @@ import type {
 } from "../../domain/models";
 
 export class CatalogAdapter {
-  constructor(private readonly client: CatalogClient) {}
+  constructor(private readonly client: CatalogClient, private readonly observer?: ObserverReadClient) {}
 
   async listResources(): Promise<Resource[]> {
     const [compute, execution] = await Promise.all([
@@ -18,7 +19,10 @@ export class CatalogAdapter {
   }
   async getResource(id: string): Promise<Resource | undefined> {
     const entry = (await this.client.catalogResources({ resource_uri: id, limit: 1 })).resources[0];
-    return entry ? normalizeResource(entry) : undefined;
+    if (!entry) return undefined;
+    if (!this.observer) return normalizeResource(entry);
+    try { return normalizeResource(entry, await this.observer.describe(id)); }
+    catch { return normalizeResource(entry); }
   }
   async listPackages(): Promise<CapabilityPackage[]> {
     const entries = await this.listCatalogEntries({ resource_type: "capability/package" });
@@ -37,7 +41,23 @@ export class CatalogAdapter {
       });
     });
   }
-  async getPackage(id: string): Promise<CapabilityPackage | undefined> { return (await this.listPackages()).find((item) => item.id === id); }
+  async getPackage(id: string): Promise<CapabilityPackage | undefined> {
+    const catalogPackage = (await this.listPackages()).find((item) => item.id === id);
+    if (!catalogPackage || !this.observer) return catalogPackage;
+    try {
+      const description = await this.observer.describe(id);
+      return normalizePackage({
+        ...catalogPackage.metadata,
+        ...description.details,
+        resource: catalogPackage.id,
+        name: catalogPackage.name,
+        package_version: catalogPackage.version,
+        actions: description.details.actions ?? catalogPackage.actions,
+        activations: catalogPackage.activationIds,
+        catalog_lifecycle: catalogPackage.status === "degraded" ? "retired" : "active",
+      });
+    } catch { return catalogPackage; }
+  }
   async listActivations(): Promise<Activation[]> {
     const entries = await this.listCatalogEntries({ resource_type: "capability/activation", include_supporting: false });
     return entries.map((entry) => normalizeActivation(entry));

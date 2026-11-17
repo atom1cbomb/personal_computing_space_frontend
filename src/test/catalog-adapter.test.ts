@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { CatalogAdapter } from "../data/adapters/catalog-adapter";
 import type { CatalogClient } from "../data/catalog/client";
+import type { ObserverReadClient } from "../data/catalog/observer-read-client";
 
 describe("catalog adapter", () => {
   it("uses catalog categories and preserves retired activation history", async () => {
@@ -34,5 +35,29 @@ describe("catalog adapter", () => {
     const packages = await adapter.listPackages();
     expect(packages[0]).toMatchObject({ name: "demo", version: "v1", actions: [{ id: actionUri, name: "info" }] });
     expect(catalogResources).toHaveBeenCalledWith(expect.objectContaining({ resource_type: "supporting/action", include_supporting: true }));
+  });
+
+  it("enriches selected package actions with read-only Observer descriptions", async () => {
+    const packageUri = "grip://loom.local/workspaces/workspace-default/packages/demo/v1";
+    const actionUri = "grip://loom.local/workspaces/workspace-default/actions/exports/demo/v1/info/sha256/abc";
+    const catalogResources = vi.fn(async (query: Record<string, unknown>) => ({
+      resources: query.resource_type === "supporting/action"
+        ? [{ uri: actionUri, resource_type: "supporting/action", summary: {} }]
+        : [{ uri: packageUri, resource_type: "capability/package", catalog_category: "capability", summary: { package_id: "demo", package_version: "v1", declared_action_refs: [actionUri] } }],
+      next_cursor: null, index_version: "catalog-v2", reason: "match",
+    }));
+    const observer = { describe: vi.fn(async () => ({ uri: packageUri, attributes: {}, details: { actions: [{ uri: actionUri, name: "info", description: "Read status", interaction: "request-reply", effect_class: "read", input_schema: { type: "object" } }] } })) };
+    const adapter = new CatalogAdapter({ catalogResources } as unknown as CatalogClient, observer as unknown as ObserverReadClient);
+    const pkg = await adapter.getPackage(packageUri);
+    expect(pkg?.actions[0]).toMatchObject({ name: "info", description: "Read status", interaction: "request-reply", sideEffects: "read", inputSchema: { type: "object" } });
+    expect(observer.describe).toHaveBeenCalledWith(packageUri);
+  });
+
+  it("adds selected Run details and relations to the Catalog record", async () => {
+    const uri = "grip://loom.local/workspaces/workspace-default/runs/run-1";
+    const catalogResources = vi.fn(async () => ({ resources: [{ uri, resource_type: "execution/run", catalog_category: "execution", lifecycle: "active", summary: { run_status: null } }], next_cursor: null, index_version: "catalog-v2", reason: "match" }));
+    const observer = { describe: vi.fn(async () => ({ uri, attributes: {}, details: { state: "running", plan: "grip://loom.local/workspaces/workspace-default/plans/p1", driver: "grip://loom.local/workspaces/workspace-default/drivers/d1", execution_epoch: 2 } })) };
+    const adapter = new CatalogAdapter({ catalogResources } as unknown as CatalogClient, observer as unknown as ObserverReadClient);
+    expect(await adapter.getResource(uri)).toMatchObject({ attributes: { state: "running", execution_epoch: 2 }, relations: { plan: "grip://loom.local/workspaces/workspace-default/plans/p1", driver: "grip://loom.local/workspaces/workspace-default/drivers/d1" } });
   });
 });
