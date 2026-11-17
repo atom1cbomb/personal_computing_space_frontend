@@ -9,7 +9,7 @@ export type CatalogResource = {
   resource_name?: string | null;
   catalog_category?: CatalogCategory;
   lifecycle?: CatalogLifecycle;
-  available?: boolean;
+  available?: boolean | null;
   owner?: string | null;
   tags?: string[];
   relations?: Record<string, string | null>;

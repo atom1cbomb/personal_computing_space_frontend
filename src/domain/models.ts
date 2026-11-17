@@ -42,7 +42,7 @@ export type Resource = {
   metadata?: Record<string, JsonValue>;
   catalogCategory?: "capability" | "compute" | "execution";
   lifecycle?: "active" | "retired" | "archived" | "expired";
-  available?: boolean;
+  available?: boolean | null;
   relations?: Record<string, string | null>;
 };
 
@@ -52,10 +52,10 @@ export type Activation = {
   packageId: string;
   slaveId: string;
   resourceId?: string;
-  status: LifecycleStatus;
+  status: string;
   revision: number;
   available: boolean;
-  authentication: "unknown" | "not_required" | "pending" | "authenticated" | "failed";
+  authentication?: string;
   configurationSummary: Record<string, JsonValue>;
   actionIds: string[];
   metadata?: Record<string, JsonValue>;

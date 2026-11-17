@@ -1352,7 +1352,8 @@ button {
 
 .activations-stats {
   display: flex;
-  gap: 24px;
+  flex-wrap: wrap;
+  gap: 12px 20px;
 }
 
 .act-stat-box {

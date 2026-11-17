@@ -33,7 +33,7 @@ export function normalizeResource(entry: CatalogResource, description?: Observer
     if (typeof attributes[key] === "string") relations[key] = attributes[key];
   }
   const lifecycle = lifecycleOf(entry.lifecycle);
-  const available = entry.available ?? false;
+  const available = entry.available;
   const actionRefs = Array.isArray(attributes.available_action_refs) ? attributes.available_action_refs
     : Array.isArray(attributes.declared_action_refs) ? attributes.declared_action_refs
     : [];
@@ -41,9 +41,7 @@ export function normalizeResource(entry: CatalogResource, description?: Observer
     id: entry.uri,
     name: text(attributes.display_name ?? attributes.name ?? (entry.resource_type === "computing/vm" && attributes.vm_id ? `VM · ${attributes.vm_id}` : undefined) ?? entry.resource_name, tail(entry.uri)),
     kind: entry.resource_type,
-    // Lifecycle vocabulary wins over a raw state string: the projection already
-    // resolved whether this row is still selectable.
-    status: status(attributes.state ?? attributes.run_status ?? attributes.runtime_status ?? attributes.activation_state
+    status: status(attributes.state ?? attributes.runtime_state
       ?? (lifecycle === "retired" ? "stopped" : available ? "ready" : "degraded")),
     attributes,
     packageId: typeof relations.package === "string" ? relations.package : undefined,
@@ -88,7 +86,7 @@ export function normalizeActivation(entry: CatalogResource): Activation {
   // `runs_on` and `package` live on the projection relations, not in the offer list.
   const relations = record(entry.relations);
   const actionRefs = Array.isArray(attributes.available_action_refs) ? attributes.available_action_refs : [];
-  const auth = attributes.authentication_state;
+  const auth = attributes.authentication_status;
   const lifecycle = lifecycleOf(entry.lifecycle);
-  return { id: entry.uri, name: text(entry.resource_name ?? attributes.instance_name, tail(entry.uri)), packageId: text(relations.package, "unknown-package"), slaveId: text(relations.runs_on, "unknown-host"), status: status(attributes.activation_state ?? (lifecycle === "retired" ? "stopped" : entry.available ? "ready" : undefined)), revision: Number(attributes.activation_revision ?? 0), available: entry.available ?? false, authentication: auth === "authenticated" ? "authenticated" : auth === "auth_required" || auth === "pending_auth" ? "pending" : auth === "auth_failed" || auth === "failed" ? "failed" : auth === "not_required" ? "not_required" : "unknown", configurationSummary: attributes, actionIds: actionRefs.map(String), lifecycle, desiredState: attributes.desired_state, relations, metadata: summary };
+  return { id: entry.uri, name: text(attributes.instance_name ?? entry.resource_name, tail(entry.uri)), packageId: text(relations.package, "unknown-package"), slaveId: text(relations.runs_on, "unknown-host"), status: text(attributes.state, "unknown"), revision: Number(attributes.revision ?? 0), available: entry.available ?? false, authentication: typeof auth === "string" ? auth : undefined, configurationSummary: attributes, actionIds: actionRefs.map(String), lifecycle, desiredState: attributes.desired_state, relations, metadata: summary };
 }

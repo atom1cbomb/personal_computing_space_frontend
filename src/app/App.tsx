@@ -332,7 +332,7 @@ function ResourceDetail({
               </div>
               <div>
                 <small>available</small>
-                <strong>{selectedRes.available ? "yes" : "no"}</strong>
+                <strong>{selectedRes.available === true ? "yes" : selectedRes.available === false ? "no" : "unknown"}</strong>
               </div>
             </>
           )}
@@ -878,19 +878,27 @@ export function App() {
               <div className="activations-stats">
                 <div className="act-stat-box">
                   <span className="act-stat-num">{activations.length}</span>
-                  <span className="act-stat-label">Total Projections</span>
+                  <span className="act-stat-label">Total</span>
                 </div>
                 <div className="act-stat-box">
                   <span className="act-stat-num text-success">{activations.filter((a) => a.status === "ready").length}</span>
                   <span className="act-stat-label">Ready</span>
                 </div>
                 <div className="act-stat-box">
-                  <span className="act-stat-num text-warning">{activations.filter((a) => a.status === "pending_auth" || a.status === "degraded").length}</span>
-                  <span className="act-stat-label">Pending / Degraded</span>
+                  <span className="act-stat-num text-warning">{activations.filter((a) => a.status === "pending_auth").length}</span>
+                  <span className="act-stat-label">Pending auth</span>
                 </div>
                 <div className="act-stat-box">
-                  <span className="act-stat-num text-danger">{activations.filter((a) => a.status === "stopped" || a.status === "failed").length}</span>
+                  <span className="act-stat-num text-warning">{activations.filter((a) => a.status === "degraded").length}</span>
+                  <span className="act-stat-label">Degraded</span>
+                </div>
+                <div className="act-stat-box">
+                  <span className="act-stat-num">{activations.filter((a) => a.status === "stopped").length}</span>
                   <span className="act-stat-label">Stopped</span>
+                </div>
+                <div className="act-stat-box">
+                  <span className="act-stat-num text-danger">{activations.filter((a) => a.status === "failed").length}</span>
+                  <span className="act-stat-label">Failed</span>
                 </div>
               </div>
 
@@ -972,16 +980,10 @@ export function App() {
                               <span className="act-meta-k">Host node:</span>
                               <span className="act-meta-v">{runsOn}</span>
                             </div>
-                            <div className="act-meta-chip">
-                              <span className="act-meta-k">Auth:</span>
-                              <span className={`tag ${item.authentication === "authenticated" ? "tag-success" : item.authentication === "failed" ? "tag-danger" : "tag-neutral"}`}>
-                                {item.authentication}
-                              </span>
-                            </div>
-                            {item.lifecycle && (
+                            {item.authentication && (
                               <div className="act-meta-chip">
-                                <span className="act-meta-k">Lifecycle:</span>
-                                <span className="act-meta-v">{item.lifecycle}</span>
+                                <span className="act-meta-k">Auth:</span>
+                                <span className="act-meta-v">{item.authentication}</span>
                               </div>
                             )}
                           </div>
