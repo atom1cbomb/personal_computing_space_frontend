@@ -1,35 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { createFixtureAdapter } from "../data/adapters/fixture-adapter";
-import { ObserverAdapter, UnavailableObserverAdapter } from "../data/adapters/observer-adapter";
+import { CatalogAdapter, UnavailableCatalogAdapter } from "../data/adapters/catalog-adapter";
 import { readAdapterConfig } from "../data/adapters/adapter-config";
-import { GripClient } from "../data/observer/grip-client";
+import { CatalogClient } from "../data/catalog/client";
 import type { CapabilityPackage, Resource, Activation } from "../domain/models";
 import { getStatusLabel, getStatusTone } from "../domain/status";
 
 const config = readAdapterConfig();
-const observerReady = Boolean(config.token && (config.observerUrl || config.useProxy));
-const observerBaseUrl = config.useProxy ? "" : config.observerUrl ?? "";
-const observerToken = config.token ?? "";
-const observerTransportUrl = config.useProxy ? import.meta.env.VITE_OBSERVER_URL ?? "" : observerBaseUrl;
-const observerProtocol = observerTransportUrl.startsWith("https:") ? ("https-json.v1" as const) : ("loom-http-json.v1" as const);
-const observerDisplayUrl = config.observerUrl || import.meta.env.VITE_OBSERVER_URL || "same-origin proxy";
-
-const adapter = config.mode === "observer"
-  ? observerReady
-    ? new ObserverAdapter(
-        new GripClient({
-          baseUrl: observerBaseUrl,
-          catalogUrl: config.catalogUrl,
-          catalogToken: config.catalogToken,
-          protocol: observerProtocol,
-          token: observerToken,
-          authority: config.gripAuthority,
-          workspaceId: config.workspaceId,
-          allowInsecureHttp: config.allowInsecureHttp,
-        })
-      )
-    : new UnavailableObserverAdapter("Observer mode requires an Observer URL and a runtime token.")
-  : createFixtureAdapter();
+const catalogReady = Boolean(config.proxyToken);
+const adapter = catalogReady
+  ? new CatalogAdapter(new CatalogClient({ catalogUrl: config.catalogUrl, proxyToken: config.proxyToken! }))
+  : new UnavailableCatalogAdapter("Resource Catalog proxy token is required.");
 
 type View = "overview" | "resources" | "packages" | "activations";
 type ResourceScope = "all" | "compute" | "driver" | "slave" | "vm" | "plan" | "run";
@@ -46,19 +26,19 @@ function markerForIndex(index: number): ResourceMarker {
   return { label, colorClass: `marker-color-${index % 8}` };
 }
 
-type ObserverSnapshot = { resources: Resource[]; packages: CapabilityPackage[]; activations: Activation[] };
-const snapshotStorageKey = "pcs.observer-snapshot";
-let snapshotCache: ObserverSnapshot | undefined;
-let snapshotRequest: Promise<ObserverSnapshot> | null = null;
+type CatalogSnapshot = { resources: Resource[]; packages: CapabilityPackage[]; activations: Activation[] };
+const snapshotStorageKey = "pcs.catalog-snapshot";
+let snapshotCache: CatalogSnapshot | undefined;
+let snapshotRequest: Promise<CatalogSnapshot> | null = null;
 
 try {
   const stored = typeof sessionStorage !== "undefined" ? sessionStorage.getItem(snapshotStorageKey) : null;
-  if (stored) snapshotCache = JSON.parse(stored) as ObserverSnapshot;
+  if (stored) snapshotCache = JSON.parse(stored) as CatalogSnapshot;
 } catch {
   snapshotCache = undefined;
 }
 
-function loadObserverSnapshot(): Promise<ObserverSnapshot> {
+function loadCatalogSnapshot(): Promise<CatalogSnapshot> {
   if (snapshotRequest) return snapshotRequest;
   snapshotRequest = Promise.all([adapter.listResources(), adapter.listPackages(), adapter.listActivations()])
     .then(([resources, packages, activations]) => {
@@ -106,49 +86,11 @@ function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) 
   );
 }
 
-function JsonBlock({ value }: { value: unknown }) {
-  const text = JSON.stringify(value, null, 2);
-  return (
-    <div className="json-container">
-      <div className="json-header">
-        <span>Payload Output</span>
-        <CopyButton text={text} label="Copy JSON" />
-      </div>
-      <pre className="json-block">{text}</pre>
-    </div>
-  );
-}
-
 function ActionCard({
-  pkg,
-  actionId,
-  targetId,
-  onRun,
+  action,
 }: {
-  pkg: CapabilityPackage;
-  actionId: string;
-  targetId: string;
-  onRun: () => void;
+  action: CapabilityPackage["actions"][number];
 }) {
-  const action = pkg.actions.find((item) => item.id === actionId)!;
-  const [input, setInput] = useState<Record<string, string>>({});
-  const [result, setResult] = useState<unknown>();
-  const [busy, setBusy] = useState(false);
-
-  async function invoke() {
-    if (!action.available || action.interaction === "byte-stream") return;
-    setBusy(true);
-    try {
-      const response = await adapter.invokeAction({ packageId: pkg.id, actionId: action.id, targetId, input });
-      setResult(response.output ?? response.run ?? response.message);
-      onRun();
-    } catch (error) {
-      setResult({ error: error instanceof Error ? error.message : "Action failed" });
-    } finally {
-      setBusy(false);
-    }
-  }
-
   const effectClass =
     action.sideEffects === "destructive"
       ? "tag-danger"
@@ -162,10 +104,11 @@ function ActionCard({
         <div>
           <div className="action-title-row">
             <strong>{action.name}</strong>
-            <span className={`tag ${effectClass}`}>{action.sideEffects} effect</span>
-            <span className="tag tag-neutral">{action.interaction}</span>
+            {action.sideEffects && <span className={`tag ${effectClass}`}>{action.sideEffects} effect</span>}
+            {action.interaction && <span className="tag tag-neutral">{action.interaction}</span>}
           </div>
           {action.description && <p>{action.description}</p>}
+          <code className="detail-uri">{action.id}</code>
         </div>
       </div>
       {action.permissions.length > 0 && (
@@ -178,33 +121,11 @@ function ActionCard({
           ))}
         </div>
       )}
-      {action.inputSchema?.properties && (
-        <div className="schema-fields">
-          {Object.entries(action.inputSchema.properties).map(([key, schema]) => (
-            <label key={key} className="schema-field-label">
-              <span>{schema.title ?? key}</span>
-              <input
-                type={schema.type === "number" || schema.type === "integer" ? "number" : "text"}
-                placeholder={String(schema.default ?? schema.description ?? `Enter ${key}`)}
-                onChange={(event) => setInput((current) => ({ ...current, [key]: event.target.value }))}
-              />
-            </label>
-          ))}
-        </div>
+      {action.inputSchema && (
+        <pre className="json-block action-schema">{JSON.stringify(action.inputSchema, null, 2)}</pre>
       )}
-      {!action.available && <p className="notice">{action.unavailableReason}</p>}
-      {action.interaction !== "task" && (
-        <div className="action-footer">
-          <button
-            className="button button-primary"
-            disabled={busy || !action.available || action.interaction === "byte-stream"}
-            onClick={invoke}
-          >
-            {busy ? "Running…" : "Simulate action"}
-          </button>
-        </div>
-      )}
-      {result !== undefined && <JsonBlock value={result} />}
+      {action.available === false && <p className="notice">{action.unavailableReason ?? "Unavailable"}</p>}
+      <p className="muted detail-empty">Displayed for discovery only. Actions are executed outside this console.</p>
     </article>
   );
 }
@@ -354,11 +275,9 @@ function WorkspaceMap({
 function ResourceDetail({
   selectedRes,
   packages,
-  onRunAction,
 }: {
   selectedRes: Resource;
   packages: CapabilityPackage[];
-  onRunAction: (name: string) => void;
 }) {
   const isExec = selectedRes.catalogCategory === "execution" || selectedRes.kind.startsWith("execution/");
   return (
@@ -440,10 +359,7 @@ function ResourceDetail({
                 .map((action) => (
                   <ActionCard
                     key={action.id}
-                    pkg={pkg}
-                    actionId={action.id}
-                    targetId={selectedRes.id}
-                    onRun={() => onRunAction(action.name)}
+                    action={action}
                   />
                 ))
             )
@@ -574,10 +490,10 @@ export function App() {
   const [activationSearch, setActivationSearch] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [connectionError, setConnectionError] = useState(false);
-  const [notice, setNotice] = useState(config.mode === "observer" ? "Connecting to Loom…" : "Fixture mode");
+  const [notice, setNotice] = useState("Connecting to Loom…");
   const refreshInFlight = useRef<Promise<void> | null>(null);
 
-  function applySnapshot(next: ObserverSnapshot) {
+  function applySnapshot(next: CatalogSnapshot) {
     setResources(next.resources);
     setPackages(next.packages);
     setActivations(next.activations);
@@ -588,21 +504,14 @@ export function App() {
     if (snapshotCache) {
       applySnapshot(snapshotCache);
       setConnectionError(false);
-      setNotice(config.mode === "observer" ? "Connected to Loom" : "Fixture mode");
+      setNotice("Connected to Loom");
     }
     const request = (async () => {
       setConnectionError(false);
       try {
-        const next =
-          config.mode === "observer"
-            ? await loadObserverSnapshot()
-            : {
-                resources: await adapter.listResources(),
-                packages: await adapter.listPackages(),
-                activations: await adapter.listActivations(),
-              };
+        const next = await loadCatalogSnapshot();
         applySnapshot(next);
-        setNotice(config.mode === "observer" ? "Connected to Loom" : "Fixture mode · Ready");
+        setNotice("Connected to Loom");
       } catch (error) {
         setConnectionError(true);
         setNotice(`Connection error · ${error instanceof Error ? error.message : "request failed"}`);
@@ -780,8 +689,8 @@ export function App() {
         <div className="sidebar-foot">
           <span className={`online-dot ${connectionError ? "dot-error" : ""}`} />
           <div className="sidebar-foot-copy">
-            <strong>{config.mode === "observer" ? "Observer workspace" : "Fixture workspace"}</strong>
-            <small>{config.mode === "observer" ? observerDisplayUrl : "offline development"}</small>
+            <strong>Loom workspace</strong>
+            <small>{config.catalogUrl}</small>
           </div>
         </div>
       </aside>
@@ -814,7 +723,7 @@ export function App() {
             </h1>
           </div>
           <div className="topbar-actions">
-            <span className="mode-pill">{config.mode === "observer" ? "OBSERVER LIVE" : "LOCAL FIXTURES"}</span>
+            <span className="mode-pill">LOOM LIVE</span>
             <button className="button refresh-btn" disabled={refreshing} onClick={() => void handleRefresh()}>
               <span className={`refresh-icon ${refreshing ? "spinning" : ""}`}>↻</span>
               <span>{refreshing ? "Refreshing…" : "Refresh"}</span>
@@ -876,13 +785,9 @@ export function App() {
                 <ResourceDetail
                   selectedRes={selectedRes}
                   packages={packages}
-                  onRunAction={(name) => {
-                    void refresh();
-                    setNotice(`Simulated ${name}`);
-                  }}
                 />
               ) : (
-                <Empty title="Select a resource" text="Inspect attributes, network topology, relationships, and invoke runtime actions." />
+                <Empty title="Select a resource" text="Inspect attributes, network topology, relationships, and advertised actions." />
               )
             }
           />
@@ -929,20 +834,14 @@ export function App() {
                       selectedPkg.actions.map((action) => (
                         <ActionCard
                           key={action.id}
-                          pkg={selectedPkg}
-                          actionId={action.id}
-                          targetId={resources.find((r) => r.packageId === selectedPkg.id)?.id ?? selectedPkg.id}
-                          onRun={() => {
-                            void refresh();
-                            setNotice(`Simulated ${action.name}`);
-                          }}
+                          action={action}
                         />
                       ))
                     )}
                   </div>
                 </div>
               ) : (
-                <Empty title="Select a package" text="Inspect package capabilities, schema definitions, and execute actions." />
+                <Empty title="Select a package" text="Inspect package capabilities, schema definitions, and declared actions." />
               )
             }
           />

@@ -1268,45 +1268,6 @@ button {
   font: 10px var(--font-mono);
 }
 
-.schema-fields {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
-  margin: 14px 0;
-  background: rgba(12, 18, 26, 0.6);
-  padding: 12px;
-  border-radius: 8px;
-  border: 1px solid var(--border-subtle);
-}
-
-.schema-field-label {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  color: var(--text-secondary);
-  font: 11px var(--font-mono);
-}
-
-.schema-field-label input {
-  padding: 8px 10px;
-  border: 1px solid var(--border-default);
-  border-radius: 6px;
-  background: var(--bg-input);
-  color: #fff;
-  font-size: 12px;
-  outline: none;
-  transition: border-color 0.15s;
-}
-
-.schema-field-label input:focus {
-  border-color: var(--accent-primary);
-  box-shadow: 0 0 0 2px rgba(77, 140, 255, 0.2);
-}
-
-.action-footer {
-  margin-top: 12px;
-}
-
 .notice {
   font-size: 12px;
   color: var(--color-warning);
@@ -1315,26 +1276,6 @@ button {
   padding: 8px 12px;
   border-radius: 6px;
   margin: 10px 0;
-}
-
-/* JSON Viewer */
-.json-container {
-  margin-top: 14px;
-  background: #080d12;
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.json-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 6px 12px;
-  background: rgba(22, 34, 48, 0.7);
-  border-bottom: 1px solid var(--border-subtle);
-  font: 10px var(--font-mono);
-  color: var(--text-muted);
 }
 
 .json-block {
@@ -1386,10 +1327,6 @@ button {
   max-width: 380px;
   line-height: 1.5;
   margin: 0;
-}
-
-.empty-action {
-  margin-top: 18px;
 }
 
 /* ═══════════════════════════════════════════════════════════════
