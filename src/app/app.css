@@ -1100,6 +1100,8 @@ button {
   font-size: 13px;
   color: var(--text-secondary);
   line-height: 1.5;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .detail-uri-bar {
@@ -1236,6 +1238,11 @@ button {
   align-items: flex-start;
 }
 
+.action-head-main {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
 .action-title-row {
   display: flex;
   align-items: center;
@@ -1248,11 +1255,22 @@ button {
   color: #fff;
 }
 
-.action-head p {
+.action-head p,
+.action-head .action-desc {
   color: var(--text-secondary);
   font-size: 12px;
   margin: 0;
   line-height: 1.4;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.action-head .action-uri {
+  display: block;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-all;
 }
 
 .action-meta {

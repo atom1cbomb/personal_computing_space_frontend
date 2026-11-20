@@ -87,6 +87,15 @@ function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) 
   );
 }
 
+// Observer may publish a content-addressed reference ({identity_criterion,
+// resource_id}) where a JSON Schema is expected. That is a pointer to a schema
+// stored elsewhere, not a schema — rendering it as "Input schema" is misleading.
+function isJsonSchema(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const schema = value as Record<string, unknown>;
+  return "type" in schema || "properties" in schema || "$ref" in schema || "oneOf" in schema || "anyOf" in schema;
+}
+
 function ActionCard({
   action,
 }: {
@@ -98,18 +107,20 @@ function ActionCard({
       : action.sideEffects === "write"
       ? "tag-warning"
       : "tag-info";
+  const hasInputSchema = isJsonSchema(action.inputSchema);
+  const hasOutputSchema = isJsonSchema(action.outputSchema);
 
   return (
     <article className="action-card">
       <div className="action-head">
-        <div>
+        <div className="action-head-main">
           <div className="action-title-row">
             <strong>{action.name}</strong>
             {action.sideEffects && <span className={`tag ${effectClass}`}>{action.sideEffects} effect</span>}
             {action.interaction && <span className="tag tag-neutral">{action.interaction}</span>}
           </div>
-          {action.description && <p>{action.description}</p>}
-          <code className="detail-uri">{action.id}</code>
+          {action.description && <p className="action-desc">{action.description}</p>}
+          <code className="detail-uri action-uri">{action.id}</code>
         </div>
       </div>
       {action.permissions.length > 0 && (
@@ -122,10 +133,10 @@ function ActionCard({
           ))}
         </div>
       )}
-      {action.inputSchema && (
+      {hasInputSchema && (
         <div><small>Input schema</small><pre className="json-block action-schema">{JSON.stringify(action.inputSchema, null, 2)}</pre></div>
       )}
-      {action.outputSchema && (
+      {hasOutputSchema && (
         <div><small>Output schema</small><pre className="json-block action-schema">{JSON.stringify(action.outputSchema, null, 2)}</pre></div>
       )}
       {action.available === false && <p className="notice">{action.unavailableReason ?? "Unavailable"}</p>}
@@ -337,7 +348,9 @@ function ResourceDetail({
             </>
           )}
           {Object.entries(selectedRes.attributes)
-            .filter(([key, value]) => value !== null && value !== undefined && value !== "")
+            .filter(([key, value]) =>
+              !["attributes_revision", "index_version", "source_digest"].includes(key) &&
+              value !== null && value !== undefined && value !== "")
             .map(([key, value]) => (
               <div key={key}>
                 <small>{key.replaceAll("_", " ")}</small>
@@ -489,7 +502,7 @@ export function App() {
   const [packageDetails, setPackageDetails] = useState<Record<string, CapabilityPackage>>({});
   const [resourceDetails, setResourceDetails] = useState<Record<string, Resource>>({});
   const [activationFilter, setActivationFilter] = useState<
-    "all" | "ready" | "pending_auth" | "stopped" | "starting" | "stopping" | "degraded" | "failed"
+    "all" | "ready" | "pending_auth" | "stopped" | "starting" | "stopping" | "degraded" | "failed" | "not_applicable"
   >("all");
   const [activationSearch, setActivationSearch] = useState("");
   const [refreshing, setRefreshing] = useState(false);
@@ -795,7 +808,7 @@ export function App() {
                 id: item.id,
                 name: item.name,
                 detail: isExec
-                  ? `${item.kind} · ${item.lifecycle ?? "unknown lifecycle"}`
+                  ? `${item.kind}${typeof item.attributes.state === "string" ? ` · ${item.attributes.state}` : ""}`
                   : `${item.kind} · ${String(item.attributes.region ?? "local")}`,
                 status: item.status,
                 hideStatus: isExec,
@@ -825,7 +838,7 @@ export function App() {
               id: item.id,
               name: item.name,
               detail: `${item.version} · ${item.actions.length} action${item.actions.length !== 1 ? "s" : ""}`,
-              status: item.status === "available" ? "ready" : item.status,
+              status: item.status,
             }))}
             selected={selectedPackage}
             onSelect={setSelectedPackage}
@@ -845,7 +858,7 @@ export function App() {
                         <CopyButton text={selectedPkg.id} label="Copy ID" />
                       </div>
                     </div>
-                    <Badge status={selectedPkg.status === "available" ? "ready" : selectedPkg.status} />
+                    <Badge status={selectedPkg.status} />
                   </div>
 
                   <div className="detail-section">
@@ -918,6 +931,7 @@ export function App() {
                     <option value="stopping">Stopping</option>
                     <option value="degraded">Degraded</option>
                     <option value="failed">Failed</option>
+                    <option value="not_applicable">Not applicable</option>
                   </select>
                 </div>
 
@@ -980,10 +994,10 @@ export function App() {
                               <span className="act-meta-k">Host node:</span>
                               <span className="act-meta-v">{runsOn}</span>
                             </div>
-                            {item.authentication && (
+                            {item.authentication === "auth_failed" && (
                               <div className="act-meta-chip">
                                 <span className="act-meta-k">Auth:</span>
-                                <span className="act-meta-v">{item.authentication}</span>
+                                <span className="act-meta-v">authentication failed</span>
                               </div>
                             )}
                           </div>

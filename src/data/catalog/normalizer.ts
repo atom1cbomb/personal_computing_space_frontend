@@ -15,11 +15,41 @@ const category = (value: unknown): CatalogCategory | undefined =>
   value === "capability" || value === "compute" || value === "execution" ? value : undefined;
 const lifecycleOf = (value: unknown): CatalogLifecycle | undefined =>
   value === "active" || value === "retired" || value === "archived" || value === "expired" ? value : undefined;
-const status = (value: unknown): LifecycleStatus => {
-  const normalized = String(value ?? "").toLowerCase();
-  if (["running", "active", "available", "healthy", "authenticated", "online"].includes(normalized)) return "ready";
-  return ["ready", "pending_auth", "degraded", "failed", "stopped", "starting", "stopping"].includes(normalized)
-    ? normalized as LifecycleStatus : "degraded";
+// A single source of truth for the displayed status. Order matters:
+//   lifecycle (still in snapshot?)  > available (usable?) > state (why).
+// `available === null` means "no verdict / not applicable" and must never be
+// rendered as degraded. Loom's raw `state` is kept in attributes for detail,
+// but is not a second status competing with this one.
+const stateStatus = (value: unknown): LifecycleStatus | undefined => {
+  const s = String(value ?? "").toLowerCase();
+  // Activation states, plus the "up" synonyms a VM/VM-like resource may publish
+  // in its free-form `state` attribute. Run/plan states are intentionally NOT
+  // mapped here — they are record lifecycle, kept verbatim in attributes.
+  if (["ready", "authenticated", "running", "active", "online", "healthy"].includes(s)) return "ready";
+  if (["pending_auth", "awaiting_auth"].includes(s)) return "pending_auth";
+  if (["starting", "provisioning", "installing"].includes(s)) return "starting";
+  if (s === "stopping") return "stopping";
+  if (["stopped", "not_installed"].includes(s)) return "stopped";
+  if (["failed", "lost", "error"].includes(s)) return "failed";
+  if (s === "degraded") return "degraded";
+  return undefined;
+};
+
+const statusOf = (
+  lifecycle: CatalogLifecycle | undefined,
+  available: boolean | null | undefined,
+  state: unknown,
+): LifecycleStatus => {
+  // Retired / archived / expired resources are history, not a failure.
+  if (lifecycle && lifecycle !== "active") return "stopped";
+  if (available === true) return "ready";
+  if (available === false) {
+    const derived = stateStatus(state);
+    // An unusable resource must never be advertised as ready.
+    return derived && derived !== "ready" ? derived : "degraded";
+  }
+  // available === null | undefined: no availability verdict for this type.
+  return stateStatus(state) ?? "not_applicable";
 };
 
 // A catalog row is a projection, not the authoritative record: `summary` holds
@@ -39,10 +69,9 @@ export function normalizeResource(entry: CatalogResource, description?: Observer
     : [];
   return {
     id: entry.uri,
-    name: text(attributes.display_name ?? attributes.name ?? (entry.resource_type === "computing/vm" && attributes.vm_id ? `VM · ${attributes.vm_id}` : undefined) ?? entry.resource_name, tail(entry.uri)),
+    name: text(attributes.display_name ?? attributes.name, tail(entry.uri)),
     kind: entry.resource_type,
-    status: status(attributes.state ?? attributes.runtime_state
-      ?? (lifecycle === "retired" ? "stopped" : available ? "ready" : "degraded")),
+    status: statusOf(lifecycle, available, attributes.state),
     attributes,
     packageId: typeof relations.package === "string" ? relations.package : undefined,
     activationId: typeof relations.activation === "string" ? relations.activation : undefined,
@@ -51,7 +80,7 @@ export function normalizeResource(entry: CatalogResource, description?: Observer
     lifecycle,
     available,
     relations,
-    metadata: { ...summary, owner: entry.owner ?? null, tags: entry.tags ?? [], index_version: entry.index_version ?? 1, updated_at: entry.updated_at ?? null },
+    metadata: { index_version: entry.index_version ?? 1, updated_at: entry.updated_at ?? null },
   };
 }
 
@@ -77,7 +106,10 @@ export function normalizePackage(payload: any): CapabilityPackage {
     action_descriptor_ref: item.resource_ref,
     permissions: payload.action_exports?.find((exp: any) => exp.action_descriptor_ref?.resource_id === item.resource_ref?.resource_id)?.permissions ?? [],
   })) ?? payload.action_exports ?? payload.exports ?? payload.metadata?.actions ?? [];
-  return { id, name: text(payload.name ?? payload.package_id ?? payload.metadata?.package_id, id.split("/").pop() ?? id), version, description: payload.description ?? payload.metadata?.description, status: payload.catalog_lifecycle === "retired" || payload.abandoned ? "degraded" : "available", actions: Array.isArray(actions) ? actions.map(normalizeAction) : [], activationIds: Array.isArray(payload.activations) ? payload.activations.map((item: any) => typeof item === "string" ? item : item.resource ?? item.uri ?? item.id).filter(Boolean) : [], metadata: payload };
+  // A retired/superseded package is history, not degradation. Keep the same
+  // vocabulary as resources: ready (current) vs stopped (retired).
+  const status: LifecycleStatus = payload.catalog_lifecycle === "retired" || payload.abandoned ? "stopped" : "ready";
+  return { id, name: text(payload.name ?? payload.package_id ?? payload.metadata?.package_id, id.split("/").pop() ?? id), version, description: payload.description ?? payload.metadata?.description, status, actions: Array.isArray(actions) ? actions.map(normalizeAction) : [], activationIds: Array.isArray(payload.activations) ? payload.activations.map((item: any) => typeof item === "string" ? item : item.resource ?? item.uri ?? item.id).filter(Boolean) : [], metadata: payload };
 }
 
 export function normalizeActivation(entry: CatalogResource): Activation {
@@ -88,5 +120,20 @@ export function normalizeActivation(entry: CatalogResource): Activation {
   const actionRefs = Array.isArray(attributes.available_action_refs) ? attributes.available_action_refs : [];
   const auth = attributes.authentication_status;
   const lifecycle = lifecycleOf(entry.lifecycle);
-  return { id: entry.uri, name: text(attributes.instance_name ?? entry.resource_name, tail(entry.uri)), packageId: text(relations.package, "unknown-package"), slaveId: text(relations.runs_on, "unknown-host"), status: text(attributes.state, "unknown"), revision: Number(attributes.revision ?? 0), available: entry.available ?? false, authentication: typeof auth === "string" ? auth : undefined, configurationSummary: attributes, actionIds: actionRefs.map(String), lifecycle, desiredState: attributes.desired_state, relations, metadata: summary };
+  const available = entry.available;
+  return {
+    id: entry.uri,
+    name: text(attributes.name, tail(entry.uri)),
+    packageId: text(relations.package, "unknown-package"),
+    slaveId: text(relations.runs_on, "unknown-host"),
+    status: statusOf(lifecycle, available, attributes.state),
+    available: available ?? null,
+    authentication: typeof auth === "string" ? auth : undefined,
+    configurationSummary: attributes,
+    actionIds: actionRefs.map(String),
+    lifecycle,
+    desiredState: attributes.desired_state,
+    relations,
+    metadata: summary,
+  };
 }

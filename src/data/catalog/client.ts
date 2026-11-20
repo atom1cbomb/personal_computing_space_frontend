@@ -6,12 +6,9 @@ export type CatalogLifecycle = "active" | "retired" | "archived" | "expired";
 export type CatalogResource = {
   uri: string;
   resource_type: string;
-  resource_name?: string | null;
   catalog_category?: CatalogCategory;
   lifecycle?: CatalogLifecycle;
   available?: boolean | null;
-  owner?: string | null;
-  tags?: string[];
   relations?: Record<string, string | null>;
   index_version?: number;
   updated_at?: string | null;
@@ -22,11 +19,8 @@ export type CatalogQuery = {
   resource_uri?: string;
   catalog_category?: Exclude<CatalogCategory, "supporting">;
   resource_type?: string;
-  tag?: string;
-  owner?: string;
   lifecycle?: CatalogLifecycle;
   available?: boolean;
-  include_validation?: boolean;
   include_supporting?: boolean;
   limit?: number;
   sort?: "uri" | "resource_type";

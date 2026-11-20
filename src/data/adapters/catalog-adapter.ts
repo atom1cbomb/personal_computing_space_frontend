@@ -33,7 +33,7 @@ export class CatalogAdapter {
       const catalogActions = refs.map((ref) => actionByUri.get(String(ref)) ?? normalizeAction({ uri: String(ref) }));
       return normalizePackage({
         resource: entry.uri,
-        name: entry.summary?.package_id ?? entry.resource_name,
+        name: entry.summary?.package_id,
         ...(entry.summary ?? {}),
         actions: catalogActions,
         activations: (entry.summary?.activation_refs as string[] | undefined) ?? [],
@@ -54,7 +54,7 @@ export class CatalogAdapter {
         package_version: catalogPackage.version,
         actions: description.details.actions ?? catalogPackage.actions,
         activations: catalogPackage.activationIds,
-        catalog_lifecycle: catalogPackage.status === "degraded" ? "retired" : "active",
+        catalog_lifecycle: catalogPackage.status === "stopped" ? "retired" : "active",
       });
     } catch { return catalogPackage; }
   }
@@ -66,7 +66,9 @@ export class CatalogAdapter {
     const entries: CatalogResource[] = [];
     let cursor = query.cursor ?? 0;
     do {
-      const page = await this.client.catalogResources({ ...query, cursor, limit: query.limit ?? 200 });
+      // Discovery views show only resources still in the latest snapshot.
+      // Historical (retired) rows stay in the catalog for explicit queries.
+      const page = await this.client.catalogResources({ lifecycle: "active", ...query, cursor, limit: query.limit ?? 200 });
       entries.push(...page.resources);
       if (page.next_cursor === null) break;
       cursor = page.next_cursor;

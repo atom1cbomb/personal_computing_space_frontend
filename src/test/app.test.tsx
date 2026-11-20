@@ -29,7 +29,7 @@ describe("application foundation", () => {
 
   it("shows the related package name and version for activations", () => {
     const uri = "grip://loom.local/workspaces/workspace-default/packages/kubernetes-http/v8";
-    expect(packageLabel(uri, [{ id: uri, name: "Kubernetes Gateway", version: "v8", status: "available", actions: [], activationIds: [] }])).toBe("Kubernetes Gateway · v8");
+    expect(packageLabel(uri, [{ id: uri, name: "Kubernetes Gateway", version: "v8", status: "ready", actions: [], activationIds: [] }])).toBe("Kubernetes Gateway · v8");
     expect(packageLabel(uri, [])).toBe("kubernetes-http · v8");
   });
 });

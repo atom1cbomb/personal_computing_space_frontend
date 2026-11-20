@@ -10,6 +10,7 @@ const labels: Record<LifecycleStatus, string> = {
   stopped: "Stopped",
   starting: "Starting",
   stopping: "Stopping",
+  not_applicable: "Not applicable",
 };
 
 export function getStatusLabel(status: LifecycleStatus): string {
@@ -17,8 +18,9 @@ export function getStatusLabel(status: LifecycleStatus): string {
 }
 
 export function getStatusTone(status: LifecycleStatus): StatusTone {
-  if (["ready"].includes(status)) return "success";
+  if (status === "ready") return "success";
   if (["pending_auth", "degraded", "starting", "stopping"].includes(status)) return "warning";
-  if (["failed"].includes(status)) return "danger";
+  if (status === "failed") return "danger";
+  // stopped / not_applicable carry no failure signal: neutral, not warning/danger.
   return "neutral";
 }
